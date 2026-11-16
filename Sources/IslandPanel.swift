@@ -213,6 +213,7 @@ final class IslandController {
     private var previewSettings: AnyCancellable?
     private var previewEnd: DispatchWorkItem?
     private var eventEnd: DispatchWorkItem?
+    private var pendingBattery: [BatteryNotice] = []
     private var previewPointer = NSPoint.zero
     private var footerLayout: AnyCancellable?
     private var footerExtra: CGFloat = 0
@@ -306,6 +307,7 @@ final class IslandController {
         wantsVisible = visible
         if !visible {
             eventEnd?.cancel()
+            pendingBattery.removeAll()
             model.footerEvent = nil
         }
         visibilityRevision += 1
@@ -418,10 +420,25 @@ final class IslandController {
 
     func presentEvent(_ event: FooterEvent) {
         guard wantsVisible else { return }
+        if case let .battery(notice) = event, let current = model.footerEvent, current != event {
+            if let index = pendingBattery.firstIndex(where: { $0.device.id == notice.device.id && $0.kind == notice.kind }) {
+                let parts = notice.parts + pendingBattery[index].parts.filter { old in !notice.parts.contains { $0.id == old.id } }
+                pendingBattery[index] = BatteryNotice(kind: notice.kind, device: notice.device, parts: parts.sorted { $0.order < $1.order })
+            } else { pendingBattery.append(notice) }
+            return
+        }
+        displayEvent(event)
+    }
+
+    private func displayEvent(_ event: FooterEvent) {
         model.footerEvent = event
         eventEnd?.cancel()
         let end = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            if !self.pendingBattery.isEmpty {
+                self.displayEvent(.battery(self.pendingBattery.removeFirst()))
+                return
+            }
             self.model.footerEvent = nil
             if case .event = self.preview { self.finishPreview() }
         }

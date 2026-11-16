@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     lazy var music = NowPlaying(model)
     let volume = SystemVolume()
     let brightness = SystemBrightness()
+    let battery = BatteryMonitor()
     var island: IslandController?
     var status: NSStatusItem!
     var tick: Timer?
@@ -33,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         volume.onKeyAccess = { [weak self] in self?.model.volumeKeysActive = $0 }
         brightness.onChange = { [weak self] in self?.island?.presentEvent(.brightness($0)) }
         volume.onBrightnessKey = { [weak self] up,fine in self?.brightness.adjust(increasing:up,fine:fine) ?? false }
+        battery.onNotice = { [weak self] in self?.island?.presentEvent(.battery($0)) }
+        battery.start()
         brightness.start()
         volume.start()
         if !model.volumeKeysActive { SystemVolume.promptIfNeeded() }
@@ -70,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         entry(hidden ? "显示灵动岛" : "隐藏灵动岛", #selector(toggleVisibility))
         entry("退出SirinIsland", #selector(quit), "q")
     }
-    func applicationWillTerminate(_ notification: Notification) { volume.stop(); brightness.stop(); music.stop() }
+    func applicationWillTerminate(_ notification: Notification) { volume.stop(); brightness.stop(); battery.stop(); music.stop() }
     @objc func openSettings() { settings.present() }
     @objc func toggleCompactLyrics() { model.keepsCompactLyrics.toggle() }
     @objc func openMusic() { open(.music) }

@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.25</string>
+	<string>1.26</string>
 	<key>CFBundleVersion</key>
-	<string>26</string>
+	<string>27</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
@@ -26,6 +26,8 @@
 	<string>SirinIsland 接管音量和屏幕亮度键，在灵动岛显示调节提示。</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>SirinIsland读取正在播放的应用音频，在刘海旁绘制实时频谱。</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>SirinIsland 在蓝牙外设连接时显示设备名称和可用的电量。</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

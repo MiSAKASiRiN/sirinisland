@@ -3,11 +3,21 @@ import SwiftUI
 enum FooterEvent: Equatable {
     case volume(OutputVolume)
     case brightness(Float)
+    case battery(BatteryNotice)
+
+    var presentationID: String {
+        switch self {
+        case .volume: return "volume"
+        case .brightness: return "brightness"
+        case let .battery(notice): return notice.device.id + notice.kind.rawValue
+        }
+    }
 
     var level: CGFloat {
         switch self {
         case let .volume(volume): return volume.muted ? 0 : CGFloat(volume.level)
         case let .brightness(value): return CGFloat(value)
+        case let .battery(notice): return CGFloat(notice.parts.first?.percent ?? 0) / 100
         }
     }
 
@@ -15,6 +25,7 @@ enum FooterEvent: Equatable {
         switch self {
         case .volume: return "系统音量"
         case .brightness: return "屏幕亮度"
+        case let .battery(notice): return notice.device.name + " " + notice.kind.rawValue
         }
     }
 
@@ -34,6 +45,7 @@ enum FooterEvent: Equatable {
             if volume.level == 0 { return "speaker.fill" }
             return "speaker.wave." + String(min(3,max(1,Int(ceil(volume.level*3))))) + ".fill"
         case .brightness: return "sun.max.fill"
+        case let .battery(notice): return notice.icon
         }
     }
 }
@@ -45,9 +57,45 @@ struct FooterOverlay: ViewModifier {
             .allowsHitTesting(event == nil)
             .accessibilityHidden(event != nil)
             .overlay {
-                if let event { AdjustmentReadout(event:event).transition(.opacity) }
+                if let event {
+                    if case let .battery(notice) = event {
+                        BatteryReadout(notice: notice).id(event.presentationID).transition(.opacity)
+                    } else { AdjustmentReadout(event:event).transition(.opacity) }
+                }
             }
-            .animation(IslandMotion.curve(0.19),value:event != nil)
+            .animation(IslandMotion.curve(0.19),value:event?.presentationID)
+    }
+}
+
+private struct BatteryReadout: View {
+    let notice: BatteryNotice
+
+    private var levels: String {
+        notice.parts.compactMap { part in
+            part.percent.map { part.label + String($0) + "%" }
+        }.joined(separator: "  ")
+    }
+
+    var body: some View {
+        GeometryReader { bounds in
+            let compact = bounds.size.width < 235
+            VStack(alignment: .leading, spacing: compact ? 0 : 2) {
+                HStack(spacing: 3) {
+                    IslandSymbol(name: notice.icon)
+                    Text(notice.kind.rawValue).fixedSize()
+                    Text(verbatim: notice.device.name).lineLimit(1).truncationMode(.middle)
+                }
+                if !levels.isEmpty {
+                    Text(verbatim: levels).monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
+                }
+            }
+            .font(.system(size: compact ? 10 : 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(notice.device.name + " " + notice.kind.rawValue)
+        .accessibilityValue(levels)
     }
 }
 
