@@ -7,6 +7,21 @@ enum FooterEvent: Equatable {
     case banner(BannerNotice)
     case focus(SystemFocusNotice)
 
+    var isRealtime: Bool {
+        switch self {
+        case .volume, .brightness, .focus: return true
+        case .battery, .banner: return false
+        }
+    }
+
+    var soloDuration: TimeInterval {
+        switch self {
+        case .banner: return 4
+        case .focus: return 2.5
+        default: return 1.8
+        }
+    }
+
     var presentationID: String {
         switch self {
         case let .banner(notice): return "banner-" + notice.id

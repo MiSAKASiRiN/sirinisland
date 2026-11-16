@@ -24,6 +24,7 @@ struct BatteryDevice: Equatable {
     let name: String
     var parts: [BatteryPart]
     var category: String? = nil
+    var transport: String? = nil
 
     func symbol(for part: BatteryPart?) -> String {
         let model = name.lowercased()
@@ -53,7 +54,7 @@ struct BatteryDevice: Equatable {
         case "Game Controller": return "gamecontroller"
         case "Watch": return "applewatch"
         case "Pencil": return "applepencil"
-        default: return "dot.radiowaves.left.and.right"
+        default: return transport == "USB" ? "cable.connector" : "dot.radiowaves.left.and.right"
         }
     }
 }
@@ -63,6 +64,13 @@ struct BatteryNotice: Equatable {
     let kind: Kind
     let device: BatteryDevice
     let parts: [BatteryPart]
+
+    var status: String {
+        if kind == .connected, let transport = device.transport {
+            return transport + " " + kind.rawValue
+        }
+        return kind.rawValue
+    }
 }
 
 struct BatteryTransitions {
@@ -110,10 +118,12 @@ final class BatteryMonitor: NSObject {
     private var sources: [CFRunLoopSource] = []
     private var connect: IOBluetoothUserNotification?
     private var disconnect: [String: IOBluetoothUserNotification] = [:]
-    private var bluetooth: [String: String] = [:]
+    private let usb = USBDevices()
+    private var attachedNames: [String: String] = [:]
+    private var lastPowerDevices: [BatteryDevice] = []
     private var groupAliases: [String: String] = [:]
     private var addressAliases: [String: String] = [:]
-    private var newAddresses: Set<String> = []
+    private var newAddresses: [String] = []
     private var lastConnection: [String: TimeInterval] = [:]
     private var pending: DispatchWorkItem?
     private var active = false
@@ -136,6 +146,10 @@ final class BatteryMonitor: NSObject {
             let deviceName = mac ? "Mac" : (caseOnly && name.hasSuffix(" Case") ? String(name.dropLast(5)) : name)
             var device = groups[group] ?? BatteryDevice(id: group, name: deviceName, parts: [])
             if !caseOnly || device.category == nil { device.category = d["Accessory Category"] as? String ?? device.category }
+            if let transport = d["Transport Type"] as? String {
+                if transport.hasPrefix("Bluetooth") { device.transport = "蓝牙" }
+                else if transport == "USB" { device.transport = "USB" }
+            }
             let combined = d["Combined Parts"] as? [[String: Any]] ?? []
             for entry in combined.isEmpty ? [d] : combined.map({ d.merging($0) { _, new in new } }) {
                 let partID = entry["Part Identifier"] as? String ?? "Single"
@@ -172,6 +186,16 @@ final class BatteryMonitor: NSObject {
         }
         if let system = IOPSNotificationCreateRunLoopSource(callback, context)?.takeRetainedValue() { sources.append(system) }
         sources.forEach { CFRunLoopAddSource(CFRunLoopGetMain(), $0, .commonModes) }
+        usb.onAttach = { [weak self] key, name, initial in
+            guard let self, self.attachedNames[key] == nil else { return }
+            self.attachedNames[key] = name
+            if !initial {
+                self.newAddresses.append(key)
+                self.schedule()
+            }
+        }
+        usb.onDetach = { [weak self] key in self?.detached(key) }
+        usb.start()
         connect = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(didConnect(_:device:)))
         for device in IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? [] where device.isConnected() {
             watch(device)
@@ -181,7 +205,7 @@ final class BatteryMonitor: NSObject {
 
     private func watch(_ device: IOBluetoothDevice) {
         guard let address = device.addressString else { return }
-        bluetooth[address] = device.name ?? "蓝牙设备"
+        attachedNames[address] = device.name ?? "蓝牙设备"
         if disconnect[address] == nil {
             disconnect[address] = device.register(forDisconnectNotification: self, selector: #selector(didDisconnect(_:device:)))
         }
@@ -190,7 +214,7 @@ final class BatteryMonitor: NSObject {
     @objc private func didConnect(_ note: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.active, device.isConnected() else { return }
-            if let address = device.addressString, self.bluetooth[address] == nil { self.newAddresses.insert(address) }
+            if let address = device.addressString, self.attachedNames[address] == nil { self.newAddresses.append(address) }
             self.watch(device)
             self.schedule()
         }
@@ -199,12 +223,16 @@ final class BatteryMonitor: NSObject {
     @objc private func didDisconnect(_ note: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.active, let address = device.addressString, !device.isConnected() else { return }
-            self.newAddresses.remove(address)
-            if let id = self.addressAliases[address] { self.lastConnection.removeValue(forKey: id) }
-            self.bluetooth.removeValue(forKey: address)
             self.disconnect.removeValue(forKey: address)?.unregister()
-            self.schedule()
+            self.detached(address)
         }
+    }
+
+    private func detached(_ key: String) {
+        guard attachedNames.removeValue(forKey: key) != nil else { return }
+        newAddresses.removeAll { $0 == key }
+        if let id = addressAliases.removeValue(forKey: key) { lastConnection.removeValue(forKey: id) }
+        schedule()
     }
 
     private func schedule() {
@@ -215,26 +243,36 @@ final class BatteryMonitor: NSObject {
     }
 
     private func refresh() {
-        guard active, let groups = Self.powerDevices() else { return }
+        guard active else { return }
+        if let groups = Self.powerDevices() { lastPowerDevices = groups }
         var devices: [String: BatteryDevice] = [:]
-        for group in groups {
-            let candidates = bluetooth.filter { $0.value == group.name }
+        for group in lastPowerDevices {
+            let candidates = attachedNames.filter { key, name in
+                name == group.name && (group.transport == nil || group.transport == (key.hasPrefix("usb:") ? "USB" : "蓝牙"))
+            }
             let address = candidates.count == 1 ? candidates.first?.key : nil
             let id = groupAliases[group.id] ?? address.flatMap { addressAliases[$0] } ?? group.id
             groupAliases[group.id] = id
             if let address { addressAliases[address] = id }
-            devices[id] = BatteryDevice(id: id, name: group.name, parts: group.parts, category: group.category)
+            devices[id] = BatteryDevice(id: id, name: group.name, parts: group.parts, category: group.category, transport: group.transport)
         }
-        for (address, name) in bluetooth {
-            let id = addressAliases[address] ?? "bt:" + address
+        for (address, name) in attachedNames {
+            let id = addressAliases[address] ?? (address.hasPrefix("usb:") ? address : "bt:" + address)
             addressAliases[address] = id
             if devices[id] == nil { devices[id] = .init(id: id, name: name, parts: []) }
+            devices[id]?.transport = address.hasPrefix("usb:") ? "USB" : "蓝牙"
         }
         let now = ProcessInfo.processInfo.systemUptime
         lastConnection = lastConnection.filter { now - $0.value < 3 }
-        let connections = Set(newAddresses.compactMap { addressAliases[$0] }.filter { lastConnection[$0] == nil })
+        let arrivals = newAddresses.compactMap { addressAliases[$0] }
+        let connections = Set(arrivals.filter { lastConnection[$0] == nil })
         newAddresses.removeAll()
-        for notice in transitions.update(devices.values.sorted { $0.id < $1.id }, newConnections: connections) {
+        let ordered = devices.values.sorted {
+            let lhs = arrivals.firstIndex(of: $0.id) ?? Int.max
+            let rhs = arrivals.firstIndex(of: $1.id) ?? Int.max
+            return lhs == rhs ? $0.id < $1.id : lhs < rhs
+        }
+        for notice in transitions.update(ordered, newConnections: connections) {
             if notice.kind == .connected { lastConnection[notice.device.id] = now }
             onNotice?(notice)
         }
@@ -250,6 +288,13 @@ final class BatteryMonitor: NSObject {
         connect = nil
         disconnect.values.forEach { $0.unregister() }
         disconnect.removeAll()
-        bluetooth.removeAll()
+        usb.stop()
+        attachedNames.removeAll()
+        addressAliases.removeAll()
+        groupAliases.removeAll()
+        newAddresses.removeAll()
+        lastConnection.removeAll()
+        lastPowerDevices.removeAll()
+        transitions = BatteryTransitions()
     }
 }

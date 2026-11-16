@@ -215,13 +215,20 @@ final class IslandController {
     private var previewSettings: AnyCancellable?
     private var previewEnd: DispatchWorkItem?
     private var eventEnd: DispatchWorkItem?
-    private var pendingEvents: [FooterEvent] = []
+    private var pendingEvents: [(event: FooterEvent, duration: TimeInterval)] = []
+    private var burstDeadline: TimeInterval = 0
+    private var scheduledEnd: TimeInterval = 0
+    private var lastPointer = NSEvent.mouseLocation
+    private let hoverFeedback: () -> Void
     private var previewPointer = NSPoint.zero
     private var footerLayout: AnyCancellable?
     private var footerExtra: CGFloat = 0
     private var waveObservation: AnyCancellable?
 
-    init(model: IslandModel, screen: NSScreen) {
+    init(model: IslandModel, screen: NSScreen, hoverFeedback: @escaping () -> Void = {
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }) {
+        self.hoverFeedback = hoverFeedback
         self.model = model
         lyricPanel = CompactLyricsPanel(model:model)
         placement = Placement(screen)
@@ -278,12 +285,14 @@ final class IslandController {
             guard let self else { return }
             // Resizing under a stationary cursor can also generate an enter event.
             if self.preview != nil && hypot(point.x-self.previewPointer.x, point.y-self.previewPointer.y) < 1 { return }
+            self.checkTriggerEntry(point)
             self.cancelPreview()
             if self.expanded { self.schedule(true, after:0.15) }
             else { self.compactHover(at:point) }
         }
         canvas.onMove = { [weak self] point in
             guard let self else { return }
+            self.checkTriggerEntry(point)
             if !self.expanded { self.compactHover(at:point) }
             else if self.preview != nil && hypot(point.x-self.previewPointer.x, point.y-self.previewPointer.y) >= 1 {
                 self.cancelPreview()
@@ -310,6 +319,7 @@ final class IslandController {
     }
     func setVisible(_ visible: Bool) {
         guard visible != wantsVisible || (visible && !panel.isVisible) else { return }
+        lastPointer = NSEvent.mouseLocation
         wantsVisible = visible
         if !visible {
             eventEnd?.cancel()
@@ -334,6 +344,14 @@ final class IslandController {
             self.panel.orderOut(nil)
         }
         updateLayout()
+    }
+
+    private func checkTriggerEntry(_ point: NSPoint) {
+        let trigger = placement.frame(0, music: playing)
+        if wantsVisible && trigger.contains(point) && !trigger.contains(lastPointer) {
+            hoverFeedback()
+        }
+        lastPointer = point
     }
 
     private func compactHover(at point: NSPoint) {
@@ -384,6 +402,7 @@ final class IslandController {
         let wasPlaying = playing
         playing = song?.playing == true
         if wasPlaying != playing {
+            lastPointer = NSEvent.mouseLocation
             model.departingCompactSong = playing ? nil : model.song
             if playing {
                 // On a quick reversal the audio tap may still be reconnecting.
@@ -426,47 +445,46 @@ final class IslandController {
 
     func presentEvent(_ event: FooterEvent) {
         guard wantsVisible else { return }
-        if let current = model.footerEvent, current != event {
-            switch event {
-            case let .battery(notice):
-                if let index = pendingEvents.firstIndex(where: { $0.presentationID == event.presentationID }),
-                   case let .battery(old) = pendingEvents[index] {
-                    let parts = notice.parts + old.parts.filter { part in !notice.parts.contains { $0.id == part.id } }
-                    pendingEvents[index] = .battery(.init(kind: notice.kind, device: notice.device, parts: parts.sorted { $0.order < $1.order }))
-                } else { pendingEvents.append(event) }
-                return
-            case .banner:
-                if case .banner = current { break }
-                pendingEvents.removeAll { if case .banner = $0 { return true }; return false }
-                pendingEvents.append(event)
-                return
-            case .focus:
-                if case .focus = current { break }
-                pendingEvents.removeAll { if case .focus = $0 { return true }; return false }
-                pendingEvents.append(event)
-                return
-            case .volume, .brightness: break
-            }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let current = model.footerEvent else {
+            displayEvent(event, duration: event.soloDuration)
+            return
         }
-        displayEvent(event)
+        if event.isRealtime {
+            if !current.isRealtime && burstDeadline > now {
+                // Resume the interrupted item for its remaining share of the one-second slot.
+                pendingEvents.insert((current, burstDeadline - now), at: 0)
+            }
+            displayEvent(event, duration: pendingEvents.isEmpty ? event.soloDuration : 1)
+        } else {
+            pendingEvents.append((event, 1))
+            if scheduledEnd > burstDeadline { scheduleEventEnd(at: burstDeadline) }
+        }
     }
 
-    private func displayEvent(_ event: FooterEvent) {
+    private func displayEvent(_ event: FooterEvent, duration: TimeInterval) {
+        let now = ProcessInfo.processInfo.systemUptime
+        burstDeadline = now + min(1, duration)
         model.footerEvent = event
+        scheduleEventEnd(at: now + duration)
+    }
+
+    private func scheduleEventEnd(at deadline: TimeInterval) {
         eventEnd?.cancel()
+        scheduledEnd = deadline
         let end = DispatchWorkItem { [weak self] in
             guard let self else { return }
             if !self.pendingEvents.isEmpty {
-                self.displayEvent(self.pendingEvents.removeFirst())
+                let next = self.pendingEvents.removeFirst()
+                self.displayEvent(next.event, duration: next.duration)
                 return
             }
             self.model.footerEvent = nil
             if case .event = self.preview { self.finishPreview() }
         }
         eventEnd = end
-        let duration: TimeInterval
-        switch event { case .banner: duration = 4; case .focus: duration = 2.5; default: duration = 1.8 }
-        DispatchQueue.main.asyncAfter(deadline:.now()+duration,execute:end)
+        let delay = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: end)
     }
 
     private func startPreviewCountdown() {
@@ -502,11 +520,13 @@ final class IslandController {
     }
 
     func relocate(_ screen: NSScreen) {
+        lastPointer = NSEvent.mouseLocation
         placement = Placement(screen)
         compact.rootView = CompactTrack(model:model,side:min(22,placement.crown-5))
         updateLayout()
     }
     func pointerLeft() {
+        lastPointer = NSEvent.mouseLocation
         hoveringCompactBody = false
         guard preview == nil else { return }
         pending?.cancel()

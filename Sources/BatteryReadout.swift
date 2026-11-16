@@ -53,7 +53,7 @@ struct BatteryReadout: View {
         }
         .foregroundStyle(.white)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(notice.device.name + " " + notice.kind.rawValue)
+        .accessibilityLabel(notice.device.name + " " + notice.status)
         .accessibilityValue(notice.parts.map { $0.label + percentage($0) }.joined(separator: "，"))
     }
 
@@ -64,7 +64,7 @@ struct BatteryReadout: View {
     }
 
     private var status: some View {
-        Text(verbatim: notice.kind.rawValue)
+        Text(verbatim: notice.status)
             .font(.system(size: 9, weight: .medium))
             .foregroundStyle(.secondary).fixedSize()
     }
