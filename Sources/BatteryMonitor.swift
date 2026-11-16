@@ -23,6 +23,39 @@ struct BatteryDevice: Equatable {
     let id: String
     let name: String
     var parts: [BatteryPart]
+    var category: String? = nil
+
+    func symbol(for part: BatteryPart?) -> String {
+        let model = name.lowercased()
+        let pro = model.contains("pro")
+        switch part?.id {
+        case "Case": return pro ? "airpodspro.chargingcase.wireless" : "airpods.chargingcase"
+        case "Left": return pro ? "airpodpro.left" : "airpod.left"
+        case "Right": return pro ? "airpodpro.right" : "airpod.right"
+        default: break
+        }
+        if id == "mac" || model.contains("macbook") { return "laptopcomputer" }
+        if model.contains("airpods max") { return "airpodsmax" }
+        if model.contains("airpods") { return pro ? "airpodspro" : "airpods" }
+        if model.contains("iphone") { return "iphone" }
+        if model.contains("ipad") { return "ipad" }
+        if model.contains("watch") { return "applewatch" }
+        if model.contains("pencil") { return "applepencil" }
+        if model.contains("keyboard") { return "keyboard" }
+        if model.contains("mouse") { return "magicmouse" }
+        if model.contains("trackpad") { return "rectangle.roundedtop" }
+        switch category {
+        case "Keyboard": return "keyboard"
+        case "Mouse": return "magicmouse"
+        case "Trackpad": return "rectangle.roundedtop"
+        case "Headphone", "Headset", "HearingAid": return "headphones"
+        case "Speaker": return "hifispeaker"
+        case "Game Controller": return "gamecontroller"
+        case "Watch": return "applewatch"
+        case "Pencil": return "applepencil"
+        default: return "dot.radiowaves.left.and.right"
+        }
+    }
 }
 
 struct BatteryNotice: Equatable {
@@ -30,14 +63,6 @@ struct BatteryNotice: Equatable {
     let kind: Kind
     let device: BatteryDevice
     let parts: [BatteryPart]
-
-    var icon: String {
-        switch kind {
-        case .charging, .plugged: return "bolt.fill"
-        case .low: return "battery.25percent"
-        case .connected: return device.parts.contains { !$0.label.isEmpty } ? "airpodspro" : "link"
-        }
-    }
 }
 
 struct BatteryTransitions {
@@ -110,6 +135,7 @@ final class BatteryMonitor: NSObject {
             let caseOnly = d["Part Identifier"] as? String == "Case"
             let deviceName = mac ? "Mac" : (caseOnly && name.hasSuffix(" Case") ? String(name.dropLast(5)) : name)
             var device = groups[group] ?? BatteryDevice(id: group, name: deviceName, parts: [])
+            if !caseOnly || device.category == nil { device.category = d["Accessory Category"] as? String ?? device.category }
             let combined = d["Combined Parts"] as? [[String: Any]] ?? []
             for entry in combined.isEmpty ? [d] : combined.map({ d.merging($0) { _, new in new } }) {
                 let partID = entry["Part Identifier"] as? String ?? "Single"
@@ -197,7 +223,7 @@ final class BatteryMonitor: NSObject {
             let id = groupAliases[group.id] ?? address.flatMap { addressAliases[$0] } ?? group.id
             groupAliases[group.id] = id
             if let address { addressAliases[address] = id }
-            devices[id] = BatteryDevice(id: id, name: group.name, parts: group.parts)
+            devices[id] = BatteryDevice(id: id, name: group.name, parts: group.parts, category: group.category)
         }
         for (address, name) in bluetooth {
             let id = addressAliases[address] ?? "bt:" + address

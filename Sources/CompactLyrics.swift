@@ -8,15 +8,25 @@ private struct CompactLyricContent: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius:10).fill(.black)
-            LyricStrip(song:model.song, lyrics:model.lyrics, visible:running && model.keepsCompactLyrics && !model.panelExpanded && model.song?.playing == true, renderer:model.lyricRenderer, showsStatus:false)
-                .frame(height:model.song?.playing == true ? nil : 26)
-                .frame(maxWidth:.infinity,alignment:.leading)
-                .opacity(model.keepsCompactLyrics && model.song?.playing == true ? 1 : 0)
-                .modifier(FooterOverlay(event:model.footerEvent))
-                .padding(.horizontal,9).padding(.bottom,3)
+            GeometryReader { bounds in
+                LyricStrip(song:model.song, lyrics:model.lyrics, visible:running && model.keepsCompactLyrics && !model.panelExpanded && model.song?.playing == true, renderer:model.lyricRenderer, showsStatus:false)
+                    .frame(height:stripHeight(width: bounds.size.width - 18))
+                    .frame(maxWidth:.infinity,alignment:.leading)
+                    .opacity(model.keepsCompactLyrics && model.song?.playing == true ? 1 : 0)
+                    .modifier(FooterOverlay(event:model.footerEvent))
+                    .padding(.horizontal,9).padding(.bottom,3)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
         }
         .frame(maxWidth:.infinity,maxHeight:.infinity)
         .clipped()
+    }
+
+    private func stripHeight(width: CGFloat) -> CGFloat? {
+        if case let .battery(notice) = model.footerEvent {
+            return BatteryReadout.contentHeight(parts: notice.parts.count, width: width)
+        }
+        return model.song?.playing == true ? nil : 26
     }
 }
 

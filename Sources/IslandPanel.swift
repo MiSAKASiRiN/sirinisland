@@ -187,9 +187,11 @@ final class IslandController {
     private let lyricPanel: CompactLyricsPanel
     private var compactLyricsObservation: AnyCancellable?
     private var compactLyricHeight: CGFloat = 0
-    private var hasFooterEvent = false
+    private var footerPartCount: Int?
     private var compactStripHeight: CGFloat {
-        max(playing ? compactLyricHeight : 0, hasFooterEvent ? 31 : 0)
+        let width = placement.frame(0, music: playing).width - 32 // child insets plus content padding
+        let eventHeight = footerPartCount.map { BatteryReadout.contentHeight(parts: $0, width: width) + 5 } ?? 0
+        return max(playing ? compactLyricHeight : 0, eventHeight)
     }
     private var pointerWatch: Timer?
     private var pointerOverLyrics = false
@@ -258,10 +260,14 @@ final class IslandController {
             }
         compactLyricsObservation = model.$keepsCompactLyrics.combineLatest(
             model.lyrics.$lines.map { !$0.isEmpty }.removeDuplicates(), model.lyrics.$footerHeight,
-            model.$footerEvent.map { $0 != nil }.removeDuplicates()
+            model.$footerEvent.map { event -> Int? in
+                guard let event else { return nil }
+                if case let .battery(notice) = event { return notice.parts.count }
+                return 0
+            }.removeDuplicates()
         ).sink { [weak self] enabled, hasLines, height, event in
-            self?.hasFooterEvent = event
-            self?.compactLyricHeight = (enabled || event) && hasLines ? height+5 : 0
+            self?.footerPartCount = event
+            self?.compactLyricHeight = (enabled || event != nil) && hasLines ? height+5 : 0
             self?.updateLayout()
         }
         waveObservation = model.meter.objectWillChange.sink { [weak self] _ in

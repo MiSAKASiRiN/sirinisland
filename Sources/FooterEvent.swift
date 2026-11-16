@@ -45,7 +45,7 @@ enum FooterEvent: Equatable {
             if volume.level == 0 { return "speaker.fill" }
             return "speaker.wave." + String(min(3,max(1,Int(ceil(volume.level*3))))) + ".fill"
         case .brightness: return "sun.max.fill"
-        case let .battery(notice): return notice.icon
+        case let .battery(notice): return notice.device.symbol(for: notice.parts.first)
         }
     }
 }
@@ -64,38 +64,6 @@ struct FooterOverlay: ViewModifier {
                 }
             }
             .animation(IslandMotion.curve(0.19),value:event?.presentationID)
-    }
-}
-
-private struct BatteryReadout: View {
-    let notice: BatteryNotice
-
-    private var levels: String {
-        notice.parts.compactMap { part in
-            part.percent.map { part.label + String($0) + "%" }
-        }.joined(separator: "  ")
-    }
-
-    var body: some View {
-        GeometryReader { bounds in
-            let compact = bounds.size.width < 235
-            VStack(alignment: .leading, spacing: compact ? 0 : 2) {
-                HStack(spacing: 3) {
-                    IslandSymbol(name: notice.icon)
-                    Text(notice.kind.rawValue).fixedSize()
-                    Text(verbatim: notice.device.name).lineLimit(1).truncationMode(.middle)
-                }
-                if !levels.isEmpty {
-                    Text(verbatim: levels).monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
-                }
-            }
-            .font(.system(size: compact ? 10 : 11, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(notice.device.name + " " + notice.kind.rawValue)
-        .accessibilityValue(levels)
     }
 }
 
