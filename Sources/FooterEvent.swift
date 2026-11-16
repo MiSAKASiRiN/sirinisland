@@ -4,9 +4,13 @@ enum FooterEvent: Equatable {
     case volume(OutputVolume)
     case brightness(Float)
     case battery(BatteryNotice)
+    case banner(BannerNotice)
+    case focus(SystemFocusNotice)
 
     var presentationID: String {
         switch self {
+        case let .banner(notice): return "banner-" + notice.id
+        case let .focus(notice): return "focus-" + notice.label
         case .volume: return "volume"
         case .brightness: return "brightness"
         case let .battery(notice): return notice.device.id + notice.kind.rawValue
@@ -17,12 +21,15 @@ enum FooterEvent: Equatable {
         switch self {
         case let .volume(volume): return volume.muted ? 0 : CGFloat(volume.level)
         case let .brightness(value): return CGFloat(value)
+        case .focus, .banner: return 0
         case let .battery(notice): return CGFloat(notice.parts.first?.percent ?? 0) / 100
         }
     }
 
     var label: String {
         switch self {
+        case let .banner(notice): return notice.title
+        case let .focus(notice): return notice.label
         case .volume: return "系统音量"
         case .brightness: return "屏幕亮度"
         case let .battery(notice): return notice.device.name + " " + notice.kind.rawValue
@@ -44,6 +51,8 @@ enum FooterEvent: Equatable {
             if volume.muted { return "speaker.slash.fill" }
             if volume.level == 0 { return "speaker.fill" }
             return "speaker.wave." + String(min(3,max(1,Int(ceil(volume.level*3))))) + ".fill"
+        case .banner: return "app.dashed"
+        case let .focus(notice): return notice.symbol
         case .brightness: return "sun.max.fill"
         case let .battery(notice): return notice.device.symbol(for: notice.parts.first)
         }
@@ -58,12 +67,46 @@ struct FooterOverlay: ViewModifier {
             .accessibilityHidden(event != nil)
             .overlay {
                 if let event {
-                    if case let .battery(notice) = event {
+                    switch event {
+                    case let .banner(notice):
+                        BannerReadout(notice: notice).id(event.presentationID).transition(.opacity)
+                    case .focus:
+                        Label(event.label, systemImage: event.icon)
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(event.presentationID).transition(.opacity)
+                    case let .battery(notice):
                         BatteryReadout(notice: notice).id(event.presentationID).transition(.opacity)
-                    } else { AdjustmentReadout(event:event).transition(.opacity) }
+                    case .volume, .brightness: AdjustmentReadout(event:event).transition(.opacity)
+                    }
                 }
             }
             .animation(IslandMotion.curve(0.19),value:event?.presentationID)
+    }
+}
+
+private struct BannerReadout: View {
+    let notice: BannerNotice
+    @State private var icon: NSImage?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Group {
+                if let icon { Image(nsImage: icon).resizable() }
+                else { Image(systemName: "app.dashed").resizable() }
+            }.scaledToFit().frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(verbatim: notice.title).font(.system(size: 11, weight: .semibold))
+                if !notice.preview.isEmpty {
+                    Text(verbatim: notice.preview).font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+            }.lineLimit(1).truncationMode(.tail)
+        }
+        .foregroundStyle(.white).frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { icon = notice.applicationIcon }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([notice.application, notice.title, notice.preview].filter { !$0.isEmpty }.joined(separator: "，"))
     }
 }
 

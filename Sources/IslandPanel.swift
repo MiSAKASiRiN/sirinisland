@@ -215,7 +215,7 @@ final class IslandController {
     private var previewSettings: AnyCancellable?
     private var previewEnd: DispatchWorkItem?
     private var eventEnd: DispatchWorkItem?
-    private var pendingBattery: [BatteryNotice] = []
+    private var pendingEvents: [FooterEvent] = []
     private var previewPointer = NSPoint.zero
     private var footerLayout: AnyCancellable?
     private var footerExtra: CGFloat = 0
@@ -313,7 +313,7 @@ final class IslandController {
         wantsVisible = visible
         if !visible {
             eventEnd?.cancel()
-            pendingBattery.removeAll()
+            pendingEvents.removeAll()
             model.footerEvent = nil
         }
         visibilityRevision += 1
@@ -426,12 +426,27 @@ final class IslandController {
 
     func presentEvent(_ event: FooterEvent) {
         guard wantsVisible else { return }
-        if case let .battery(notice) = event, let current = model.footerEvent, current != event {
-            if let index = pendingBattery.firstIndex(where: { $0.device.id == notice.device.id && $0.kind == notice.kind }) {
-                let parts = notice.parts + pendingBattery[index].parts.filter { old in !notice.parts.contains { $0.id == old.id } }
-                pendingBattery[index] = BatteryNotice(kind: notice.kind, device: notice.device, parts: parts.sorted { $0.order < $1.order })
-            } else { pendingBattery.append(notice) }
-            return
+        if let current = model.footerEvent, current != event {
+            switch event {
+            case let .battery(notice):
+                if let index = pendingEvents.firstIndex(where: { $0.presentationID == event.presentationID }),
+                   case let .battery(old) = pendingEvents[index] {
+                    let parts = notice.parts + old.parts.filter { part in !notice.parts.contains { $0.id == part.id } }
+                    pendingEvents[index] = .battery(.init(kind: notice.kind, device: notice.device, parts: parts.sorted { $0.order < $1.order }))
+                } else { pendingEvents.append(event) }
+                return
+            case .banner:
+                if case .banner = current { break }
+                pendingEvents.removeAll { if case .banner = $0 { return true }; return false }
+                pendingEvents.append(event)
+                return
+            case .focus:
+                if case .focus = current { break }
+                pendingEvents.removeAll { if case .focus = $0 { return true }; return false }
+                pendingEvents.append(event)
+                return
+            case .volume, .brightness: break
+            }
         }
         displayEvent(event)
     }
@@ -441,15 +456,17 @@ final class IslandController {
         eventEnd?.cancel()
         let end = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            if !self.pendingBattery.isEmpty {
-                self.displayEvent(.battery(self.pendingBattery.removeFirst()))
+            if !self.pendingEvents.isEmpty {
+                self.displayEvent(self.pendingEvents.removeFirst())
                 return
             }
             self.model.footerEvent = nil
             if case .event = self.preview { self.finishPreview() }
         }
         eventEnd = end
-        DispatchQueue.main.asyncAfter(deadline:.now()+1.8,execute:end)
+        let duration: TimeInterval
+        switch event { case .banner: duration = 4; case .focus: duration = 2.5; default: duration = 1.8 }
+        DispatchQueue.main.asyncAfter(deadline:.now()+duration,execute:end)
     }
 
     private func startPreviewCountdown() {

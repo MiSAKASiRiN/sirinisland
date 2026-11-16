@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let volume = SystemVolume()
     let brightness = SystemBrightness()
     let battery = BatteryMonitor()
+    let banners = SystemBannerMonitor(.notifications)
+    let systemFocus = SystemBannerMonitor(.focus)
     var island: IslandController?
     var status: NSStatusItem!
     var tick: Timer?
@@ -39,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         brightness.start()
         volume.start()
         if !model.volumeKeysActive { SystemVolume.promptIfNeeded() }
+        banners.onNotice = { [weak self] in self?.island?.presentEvent($0) }
+        systemFocus.onNotice = banners.onNotice
+        banners.start()
+        systemFocus.start()
         music.start()
         model.toggleMusic = { [weak self] in self?.music.controller.togglePlayPause() }
         model.tick()
@@ -73,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         entry(hidden ? "显示灵动岛" : "隐藏灵动岛", #selector(toggleVisibility))
         entry("退出SirinIsland", #selector(quit), "q")
     }
-    func applicationWillTerminate(_ notification: Notification) { volume.stop(); brightness.stop(); battery.stop(); music.stop() }
+    func applicationWillTerminate(_ notification: Notification) { volume.stop(); brightness.stop(); battery.stop(); banners.stop(); systemFocus.stop(); music.stop() }
     @objc func openSettings() { settings.present() }
     @objc func toggleCompactLyrics() { model.keepsCompactLyrics.toggle() }
     @objc func openMusic() { open(.music) }
