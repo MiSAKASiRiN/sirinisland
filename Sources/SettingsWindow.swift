@@ -23,6 +23,7 @@ private enum SettingsPage: Hashable {
 
 private struct IslandSettings: View {
     @ObservedObject var model: IslandModel
+    @State private var showingLyricFilters = false
     @State private var selection: SettingsPage = .general
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
 
@@ -55,6 +56,7 @@ private struct IslandSettings: View {
         .formStyle(.grouped)
         .toggleStyle(.switch)
         .frame(minWidth: 580, minHeight: 358)
+        .sheet(isPresented: $showingLyricFilters) { LyricFilterSettings(lyrics: model.lyrics) }
     }
 
     private func row(_ page: SettingsPage) -> some View {
@@ -110,6 +112,9 @@ private struct IslandSettings: View {
                         Text("AMLL").tag(LyricRenderer.amll)
                     }
                     Toggle("收起时显示歌词", isOn: $model.keepsCompactLyrics)
+                    LabeledContent("歌词过滤") {
+                        Button("管理规则…") { showingLyricFilters = true }
+                    }
                 }
                 Section("切歌预览") {
                     Toggle("切歌时自动展开", isOn: $model.autoExpandsOnTrackChange)

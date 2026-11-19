@@ -117,7 +117,7 @@ final class IslandModel: ObservableObject {
     // Keep the outgoing metadata and marquee alive until the compact wing has faded.
     @Published var departingCompactSong: IslandSong?
     let meter = SpectrumMeter()
-    let lyrics = IslandLyrics()
+    let lyrics: IslandLyrics
     // During an automatic opening both views keep drawing the last presented cover.
     @Published var openingCover: IslandSong?
     @Published private(set) var coverViewRevision = 0
@@ -143,6 +143,7 @@ final class IslandModel: ObservableObject {
     private let defaults: UserDefaults
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        lyrics = IslandLyrics(defaults: defaults)
         lyricRenderer = defaults.string(forKey: "lyricRenderer").flatMap(LyricRenderer.init(rawValue:)) ?? .native
         autoExpandsOnTrackChange = defaults.object(forKey:"autoExpandsOnTrackChange") as? Bool ?? true
         previewSeconds = Self.boundedPreviewSeconds(defaults.object(forKey:"previewSeconds") as? Int ?? 4)

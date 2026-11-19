@@ -279,7 +279,39 @@ final class IslandLyrics: ObservableObject {
         revision += 1
         lines = next
     }
-    private func showResult(_ next: [LyricCue]) {
+    private let defaults: UserDefaults
+    private var sourceLines: [LyricCue]?
+    private var filtering: Task<Void, Never>?
+    private var expressions: [NSRegularExpression]
+    @Published var filters: LyricFilterPreferences {
+        didSet {
+            guard filters != oldValue else { return }
+            defaults.set(try? JSONEncoder().encode(filters), forKey: "lyricFilters")
+            expressions = filters.expressions()
+            if let sourceLines { showResult(sourceLines) }
+        }
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let saved = defaults.data(forKey: "lyricFilters").flatMap {
+            try? JSONDecoder().decode(LyricFilterPreferences.self, from: $0)
+        } ?? LyricFilterPreferences()
+        filters = saved
+        expressions = saved.expressions()
+    }
+
+    private func showResult(_ raw: [LyricCue]) {
+        sourceLines = raw
+        filtering?.cancel()
+        filtering = Task { @MainActor [weak self, expressions] in
+            let filtered = await LyricFilter.apply(expressions, to: raw)
+            guard !Task.isCancelled else { return }
+            self?.publish(filtered)
+        }
+    }
+
+    private func publish(_ next: [LyricCue]) {
         showLines(next)
         let height: CGFloat = 26 + (next.contains { !$0.readings.isEmpty } ? 8 : 0)
             + (next.contains { !$0.translation.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty } ? 19 : 0)
@@ -300,7 +332,11 @@ final class IslandLyrics: ObservableObject {
         songID = song?.trackID
         request?.cancel()
         track = key
-        if changedSong { showLines([]) }
+        if changedSong {
+            filtering?.cancel()
+            sourceLines = nil
+            showLines([])
+        }
         guard let key else {
             footerHeight = 26
             status = "暂无播放"
