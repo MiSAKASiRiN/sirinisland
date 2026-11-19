@@ -23,10 +23,10 @@ struct Placement {
             crown = 23
         }
     }
-    func frame(_ t: CGFloat, music: Bool = false, footerExtra: CGFloat = 0) -> NSRect {
+    func frame(_ t: CGFloat, music: Bool = false, footerExtra: CGFloat = 0, expandedWidth: CGFloat? = nil) -> NSRect {
         // Both wings meet the physical camera gap, even when only the left wing widens.
         let extra: CGFloat = music ? 90 * (1-t) : 0
-        let w = narrow + (max(wide, narrow) - narrow) * t + extra
+        let w = narrow + (max(expandedWidth ?? wide, narrow) - narrow) * t + extra
         let h = crown + (tall + footerExtra - crown) * t
         return NSRect(x: round(center - (w+extra)/2), y: screen.frame.maxY - h, width: w, height: h)
     }
@@ -223,6 +223,7 @@ final class IslandController {
     private var previewPointer = NSPoint.zero
     private var footerLayout: AnyCancellable?
     private var footerExtra: CGFloat = 0
+    private var terminalLayout = false
     private var waveObservation: AnyCancellable?
 
     init(model: IslandModel, screen: NSScreen, hoverFeedback: @escaping () -> Void = {
@@ -237,7 +238,7 @@ final class IslandController {
         destination = initial
         compact = CompactHost(rootView:CompactTrack(model:model,side:min(22,placement.crown-5)))
         canvas = IslandCanvas(model: model)
-        host = NSHostingView(rootView: IslandContent(m: model, width: placement.wide-14))
+        host = NSHostingView(rootView: IslandContent(m: model))
         panel = IslandWindow(contentRect: placement.frame(0), styleMask: [.borderless,.nonactivatingPanel], backing: .buffered, defer: false)
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -260,9 +261,10 @@ final class IslandController {
                 else if case let .showing(start) = preview { self.schedulePreviewEnd(start:start,seconds:seconds) }
             }
         footerLayout = model.lyrics.$footerHeight.combineLatest(model.$showFooterMenu)
-            .map { height, menu in menu ? 0 : height-26 }.removeDuplicates().sink { [weak self] extra in
+            .combineLatest(model.$tab.removeDuplicates()).sink { [weak self] footer, tab in
                 guard let self else { return }
-                self.footerExtra = extra
+                self.footerExtra = footer.1 ? 0 : footer.0 - 26
+                self.terminalLayout = tab == .terminal
                 self.updateLayout()
             }
         compactLyricsObservation = model.$keepsCompactLyrics.combineLatest(
@@ -550,6 +552,11 @@ final class IslandController {
         expanded = open
         model.panelExpanded = open
         if !open {
+            model.terminal.wantsFocus = false
+            if model.tab == .terminal && panel.isKeyWindow {
+                panel.makeFirstResponder(nil)
+                panel.resignKey()
+            }
             model.showFooterMenu = false
             if model.song?.playing == true { model.tab = .music }
         }
@@ -561,8 +568,10 @@ final class IslandController {
         let eligible = !expanded && compactStripHeight > 0 && wantsVisible && panel.isVisible
         watchPointer(eligible && playing && compactLyricHeight > 0)
         let open: CGFloat = expanded ? 1 : 0
-        let target = PanelLayout(frame:placement.frame(open,music:playing,footerExtra:footerExtra),
-                                 expansion:open,music:playing ? 1 : 0,crown:placement.crown,hostHeight:154+footerExtra,
+        let extra = footerExtra + (terminalLayout && expanded ? IslandTerminal.extraHeight : 0)
+        let width = terminalLayout ? min(660, placement.screen.visibleFrame.width - 16) : placement.wide
+        let target = PanelLayout(frame:placement.frame(open,music:playing,footerExtra:extra,expandedWidth:width),
+                                 expansion:open,music:playing ? 1 : 0,crown:placement.crown,hostHeight:154+extra,
                                  compactLyricHeight:eligible && !pointerOverLyrics ? compactStripHeight : 0)
         guard target != destination else { return }
         let playbackChange = !expanded && (target.music != destination.music || abs(displayed.music-target.music) > 0.005)
@@ -639,7 +648,7 @@ final class IslandController {
         let presence = IslandMotion.fade(layout.music) * (1-IslandMotion.fade((layout.expansion-0.04)/0.52))
         canvas.musicPhase = layout.music
         canvas.compactMusic = presence
-        let width = placement.wide-14
+        let width = max(placement.wide, layout.frame.width)-14
         host.frame = CGRect(x:(layout.frame.width-width)/2, y:layout.crown, width:width, height:layout.hostHeight)
         host.alphaValue = IslandMotion.fade((layout.expansion-0.40)/0.60)
         host.isHidden = host.alphaValue < 0.001

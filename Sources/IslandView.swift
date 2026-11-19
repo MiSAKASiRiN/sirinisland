@@ -43,7 +43,6 @@ struct SmallButton: View {
 
 struct IslandContent: View {
     @ObservedObject var m: IslandModel
-    let width: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Namespace private var selection
 
@@ -57,6 +56,7 @@ struct IslandContent: View {
                                   meter:m.meter, expanded:m.panelExpanded) { m.toggleMusic?() }
                     case .focus: focus
                     case .shelf: shelf
+                    case .terminal: IslandTerminalPane(terminal: m.terminal, active: m.panelExpanded)
                     case .codex: CodexQuotaCard(monitor: m.codex, expanded: m.panelExpanded)
                     }
                 }
@@ -69,10 +69,10 @@ struct IslandContent: View {
                         HStack(spacing:3) {
                             ForEach(IslandTab.allCases, id: \.self) { tab in
                                 Button {
-                                    m.tab = tab
+                                    m.selectPage(tab)
                                 } label: {
                                     HStack(spacing: 5) {
-                                        Image(systemName: tab.symbol)
+                                        if m.tab == tab { Image(systemName: tab.symbol) }
                                         Text(tab.title)
                                         if tab == .shelf && !m.items.isEmpty {
                                             Text("\(m.items.count)").font(.system(size: 10).monospacedDigit())
@@ -111,7 +111,7 @@ struct IslandContent: View {
         .animation(IslandMotion.settle(IslandMotion.resizeDuration, reduced:reduced), value: m.clock.phase)
         .animation(IslandMotion.settle(0.28, reduced:reduced), value: m.clock.minutes)
         .animation(IslandMotion.curve(0.18), value: m.dragOver)
-        .frame(width: width).environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity).environment(\.colorScheme, .dark)
     }
 
     private var focus: some View {

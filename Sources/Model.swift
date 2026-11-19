@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum IslandTab: CaseIterable, Hashable {
-    case focus, shelf, music, codex
+    case focus, shelf, music, codex, terminal
 
     var title: String {
         switch self {
@@ -10,6 +10,7 @@ enum IslandTab: CaseIterable, Hashable {
         case .shelf: return "暂存"
         case .music: return "音乐"
         case .codex: return "Codex"
+        case .terminal: return "终端"
         }
     }
 
@@ -18,7 +19,8 @@ enum IslandTab: CaseIterable, Hashable {
         case .focus: return "timer"
         case .shelf: return "tray"
         case .music: return "music.note"
-        case .codex: return "terminal"
+        case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .terminal: return "terminal"
         }
     }
 }
@@ -119,6 +121,13 @@ final class IslandModel: ObservableObject {
     // Keep the outgoing metadata and marquee alive until the compact wing has faded.
     @Published var departingCompactSong: IslandSong?
     let meter = SpectrumMeter()
+    let terminal = IslandTerminal()
+
+    func selectPage(_ page: IslandTab) {
+        terminal.wantsFocus = page == .terminal
+        tab = page
+    }
+
     let codex: CodexQuotaMonitor
     let lyrics: IslandLyrics
     // During an automatic opening both views keep drawing the last presented cover.

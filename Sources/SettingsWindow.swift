@@ -104,6 +104,13 @@ private struct IslandSettings: View {
                     }
                 }
             }
+        case .island(.terminal):
+            Form {
+                Section("会话") {
+                    LabeledContent("登录 Shell", value: IslandTerminal.shellPath)
+                    LabeledContent("起始目录", value: NSHomeDirectory())
+                }
+            }
         case .island(.codex):
             CodexQuotaSettings(monitor: model.codex)
         case .island(.music):

@@ -79,26 +79,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         entry("打开专注计时", #selector(focus))
         entry("打开文件暂存架", #selector(shelf))
         entry("查看 Codex 额度", #selector(openCodex))
+        entry("打开岛内终端", #selector(openTerminal))
         menu.addItem(.separator())
         entry("设置…", #selector(openSettings), ",")
         entry(hidden ? "显示灵动岛" : "隐藏灵动岛", #selector(toggleVisibility))
         entry("退出SirinIsland", #selector(quit), "q")
     }
-    func applicationWillTerminate(_ notification: Notification) { model.codex.stop(); volume.stop(); brightness.stop(); battery.stop(); banners.stop(); systemFocus.stop(); music.stop() }
+    func applicationWillTerminate(_ notification: Notification) { model.terminal.stop(); model.codex.stop(); volume.stop(); brightness.stop(); battery.stop(); banners.stop(); systemFocus.stop(); music.stop() }
     @objc func openSettings() { settings.present() }
     @objc func toggleCompactLyrics() { model.keepsCompactLyrics.toggle() }
     @objc func openMusic() { open(.music) }
     @objc func retryAudio() { music.retryAudio() }
     @objc func focus() { open(.focus) }
+    @objc func openTerminal() { open(.terminal) }
     @objc func openCodex() { open(.codex) }
     @objc func shelf() { open(.shelf) }
     private func open(_ tab: IslandTab) {
         hidden = false
-        model.tab = tab
+        model.selectPage(tab)
         island?.setVisible(true)
         island?.show(true)
         // Give the pointer time to travel from the menu to the island.
-        if !model.pinned { island?.schedule(false, after: 6) }
+        if !model.pinned && tab != .terminal { island?.schedule(false, after: 6) }
     }
     @objc func toggleVisibility() {
         hidden.toggle()

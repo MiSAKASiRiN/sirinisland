@@ -12,6 +12,12 @@ signing_identity="${SIRIN_SIGNING_IDENTITY:-Developer ID Application: Zehao Wu (
 (cd Vendor/mediaremote-adapter && xcodebuild -quiet -scheme MediaRemoteAdapter -configuration Release \
   -destination "platform=macOS,arch=$arch" -derivedDataPath "$derived" MACOSX_DEPLOYMENT_TARGET=13.0 CODE_SIGNING_ALLOWED=NO build)
 products="$derived/Build/Products/Release"
+term_scratch="$PWD/build/TerminalSupport"
+term_args=(--package-path TerminalSupport --scratch-path "$term_scratch" -c release)
+swift build "${term_args[@]}" --product TerminalSupport
+term_products="$(swift build "${term_args[@]}" --show-bin-path)"
+term_modules="$term_products"
+if [[ -d "$term_products/Modules" ]]; then term_modules="$term_products/Modules"; fi
 package="$scratch/SirinIsland.app"
 mkdir -p "$package/Contents/"{MacOS,Resources/Licenses,Frameworks}
 cp Info.plist "$package/Contents/Info.plist"
@@ -19,6 +25,7 @@ mecab="$PWD/Vendor/MeCab"
 ditto "$mecab/Resources/MeCab" "$package/Contents/Resources/MeCab"
 cp "$mecab"/Licenses/*.txt "$package/Contents/Resources/Licenses/"
 xcrun clang++ -std=c++11 -fobjc-arc -target "$arch-apple-macosx13.0" -I"$mecab/include" -c "$mecab/MeCabBridge.mm" -o "$scratch/MeCabBridge.o"
+cp "$term_scratch/checkouts/SwiftTerm/LICENSE" "$package/Contents/Resources/Licenses/SwiftTerm.txt"
 cp Island.icns "$package/Contents/Resources/"
 mkdir -p "$package/Contents/Resources/LyricRenderer"
 cp WebLyrics/assets/{index.html,renderer.js,renderer.css,strip.css} "$package/Contents/Resources/LyricRenderer/"
@@ -28,7 +35,7 @@ for lib in mediaremote-adapter OpenSoftLinking; do
 done
 ditto "$products/PackageFrameworks/MediaRemoteAdapter.framework" "$package/Contents/Frameworks/MediaRemoteAdapter.framework"
 ditto "$products/MediaRemoteAdapter_MediaRemoteAdapter.bundle" "$package/Contents/Resources/MediaRemoteAdapter_MediaRemoteAdapter.bundle"
-xcrun swiftc -swift-version 5 -O -target "$arch-apple-macosx13.0" -I "$products" -F "$products/PackageFrameworks" \
+xcrun swiftc -swift-version 5 -O -target "$arch-apple-macosx13.0" -I "$products" -I "$term_modules" "$term_products/libTerminalSupport.a" -F "$products/PackageFrameworks" \
     -framework MediaRemoteAdapter -Xlinker -rpath -Xlinker '@executable_path/../Frameworks' -import-objc-header "$mecab/MeCabBridge.h" "$scratch/MeCabBridge.o" "$mecab/libmecab.a" -lc++ -liconv Sources/*.swift -o "$package/Contents/MacOS/SirinIsland"
 codesign --force --options runtime --sign "$signing_identity" "$package/Contents/Frameworks/MediaRemoteAdapter.framework"
 codesign --force --options runtime --sign "$signing_identity" "$package"
