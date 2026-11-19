@@ -1,10 +1,31 @@
 import AppKit
 import SwiftUI
 
-enum IslandTab { case focus, shelf, music }
+enum IslandTab: CaseIterable, Hashable {
+    case focus, shelf, music
+
+    var title: String {
+        switch self {
+        case .focus: return "专注"
+        case .shelf: return "暂存"
+        case .music: return "音乐"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .focus: return "timer"
+        case .shelf: return "tray"
+        case .music: return "music.note"
+        }
+    }
+}
 enum ClockPhase: String, Codable { case ready, running, paused, finished }
 
 struct FocusClock: Codable {
+    static let durations = [5, 25, 45]
+    var canChangeDuration: Bool { phase == .ready || phase == .finished }
+
     var minutes = 25
     var phase = ClockPhase.ready
     var deadline: Date?

@@ -66,13 +66,13 @@ struct IslandContent: View {
                 Group {
                     if m.showFooterMenu {
                         HStack(spacing:3) {
-                            ForEach([IslandTab.focus, .shelf, .music], id: \.self) { tab in
+                            ForEach(IslandTab.allCases, id: \.self) { tab in
                                 Button {
                                     m.tab = tab
                                 } label: {
                                     HStack(spacing: 5) {
-                                        Image(systemName: tab == .music ? "music.note" : (tab == .focus ? "timer" : "tray"))
-                                        Text(tab == .music ? "音乐" : (tab == .focus ? "专注" : "暂存"))
+                                        Image(systemName: tab.symbol)
+                                        Text(tab.title)
                                         if tab == .shelf && !m.items.isEmpty {
                                             Text("\(m.items.count)").font(.system(size: 10).monospacedDigit())
                                         }
@@ -137,13 +137,13 @@ struct IslandContent: View {
             HStack(spacing: 8) {
                 Text("时长").font(.system(size: 11)).foregroundStyle(muted)
                 Spacer()
-                ForEach([5,25,45], id: \.self) { minute in
+                ForEach(FocusClock.durations, id: \.self) { minute in
                     Button { m.reset(minute) } label: {
                         Text("\(minute) 分钟").font(.system(size: 11, weight: .medium))
                             .padding(.horizontal, 10).frame(height: 22)
                             .foregroundStyle(m.clock.minutes == minute ? honey : muted)
                             .background(Capsule().fill(m.clock.minutes == minute ? honey.opacity(0.12) : .clear))
-                    }.buttonStyle(IslandButtonStyle()).disabled(m.clock.phase == .running || m.clock.phase == .paused)
+                    }.buttonStyle(IslandButtonStyle()).disabled(!m.clock.canChangeDuration)
                 }
             }.padding(.horizontal, 4)
         }
