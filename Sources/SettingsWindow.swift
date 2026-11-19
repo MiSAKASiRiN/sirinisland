@@ -104,6 +104,8 @@ private struct IslandSettings: View {
                     }
                 }
             }
+        case .island(.codex):
+            CodexQuotaSettings(monitor: model.codex)
         case .island(.music):
             Form {
                 Section("歌词") {

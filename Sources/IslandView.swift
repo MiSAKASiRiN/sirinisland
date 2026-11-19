@@ -57,6 +57,7 @@ struct IslandContent: View {
                                   meter:m.meter, expanded:m.panelExpanded) { m.toggleMusic?() }
                     case .focus: focus
                     case .shelf: shelf
+                    case .codex: CodexQuotaCard(monitor: m.codex, expanded: m.panelExpanded)
                     }
                 }
                 .id(m.tab)
@@ -77,7 +78,7 @@ struct IslandContent: View {
                                             Text("\(m.items.count)").font(.system(size: 10).monospacedDigit())
                                         }
                                     }.font(.system(size: 12, weight: .medium))
-                                    .padding(.horizontal, 11).frame(height: 26)
+                                    .lineLimit(1).padding(.horizontal, 6).frame(height: 26)
                                     .background {
                                         if m.tab == tab {
                                             Capsule().fill(Color(white:0.16))

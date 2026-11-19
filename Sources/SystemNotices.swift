@@ -16,6 +16,13 @@ struct BannerNotice: Equatable {
         return workspace.icon(forFile: path)
     }
 
+    init(id: String, application: String, title: String, preview: String) {
+        self.id = id
+        self.application = application
+        self.title = title
+        self.preview = preview
+    }
+
     init(id: String, description: String, fields: [String: String]) {
         self.id = id
         let title = fields["title"] ?? ""

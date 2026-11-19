@@ -45,6 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         systemFocus.onNotice = banners.onNotice
         banners.start()
         systemFocus.start()
+        model.codex.onLowQuota = { [weak self] id, text in
+            self?.island?.presentEvent(.banner(BannerNotice(id: id, application: "ChatGPT", title: "Codex 额度提醒", preview: text)))
+        }
+        model.codex.start()
         music.start()
         model.toggleMusic = { [weak self] in self?.music.controller.togglePlayPause() }
         model.tick()
@@ -74,17 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lyrics.state = model.keepsCompactLyrics ? .on : .off
         entry("打开专注计时", #selector(focus))
         entry("打开文件暂存架", #selector(shelf))
+        entry("查看 Codex 额度", #selector(openCodex))
         menu.addItem(.separator())
         entry("设置…", #selector(openSettings), ",")
         entry(hidden ? "显示灵动岛" : "隐藏灵动岛", #selector(toggleVisibility))
         entry("退出SirinIsland", #selector(quit), "q")
     }
-    func applicationWillTerminate(_ notification: Notification) { volume.stop(); brightness.stop(); battery.stop(); banners.stop(); systemFocus.stop(); music.stop() }
+    func applicationWillTerminate(_ notification: Notification) { model.codex.stop(); volume.stop(); brightness.stop(); battery.stop(); banners.stop(); systemFocus.stop(); music.stop() }
     @objc func openSettings() { settings.present() }
     @objc func toggleCompactLyrics() { model.keepsCompactLyrics.toggle() }
     @objc func openMusic() { open(.music) }
     @objc func retryAudio() { music.retryAudio() }
     @objc func focus() { open(.focus) }
+    @objc func openCodex() { open(.codex) }
     @objc func shelf() { open(.shelf) }
     private func open(_ tab: IslandTab) {
         hidden = false

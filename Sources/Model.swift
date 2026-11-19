@@ -2,13 +2,14 @@ import AppKit
 import SwiftUI
 
 enum IslandTab: CaseIterable, Hashable {
-    case focus, shelf, music
+    case focus, shelf, music, codex
 
     var title: String {
         switch self {
         case .focus: return "专注"
         case .shelf: return "暂存"
         case .music: return "音乐"
+        case .codex: return "Codex"
         }
     }
 
@@ -17,6 +18,7 @@ enum IslandTab: CaseIterable, Hashable {
         case .focus: return "timer"
         case .shelf: return "tray"
         case .music: return "music.note"
+        case .codex: return "terminal"
         }
     }
 }
@@ -117,6 +119,7 @@ final class IslandModel: ObservableObject {
     // Keep the outgoing metadata and marquee alive until the compact wing has faded.
     @Published var departingCompactSong: IslandSong?
     let meter = SpectrumMeter()
+    let codex: CodexQuotaMonitor
     let lyrics: IslandLyrics
     // During an automatic opening both views keep drawing the last presented cover.
     @Published var openingCover: IslandSong?
@@ -143,6 +146,7 @@ final class IslandModel: ObservableObject {
     private let defaults: UserDefaults
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        codex = CodexQuotaMonitor(defaults: defaults)
         lyrics = IslandLyrics(defaults: defaults)
         lyricRenderer = defaults.string(forKey: "lyricRenderer").flatMap(LyricRenderer.init(rawValue:)) ?? .native
         autoExpandsOnTrackChange = defaults.object(forKey:"autoExpandsOnTrackChange") as? Bool ?? true
