@@ -23,6 +23,7 @@ private enum SettingsPage: Hashable {
 
 private struct IslandSettings: View {
     @ObservedObject var model: IslandModel
+    let updates: SoftwareUpdates
     @State private var showingLyricFilters = false
     @State private var selection: SettingsPage = .general
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
@@ -140,9 +141,11 @@ private struct IslandSettings: View {
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 80, height: 80)
                     .accessibilityHidden(true)
                 Text("SirinIsland").font(.title.bold())
-                if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-                    Text("版本 \(version)").font(.callout).foregroundStyle(.secondary)
+                if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                   let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
+                    Text("版本 \(version) (\(build))").font(.callout).foregroundStyle(.secondary)
                 }
+                if let controller = updates.controller { UpdateSettings(controller: controller) }
                 Text("Designed by Sirin").padding(.top, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -151,8 +154,8 @@ private struct IslandSettings: View {
 }
 
 final class SettingsWindow: NSWindowController {
-    init(model: IslandModel) {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: IslandSettings(model: model)))
+    init(model: IslandModel, updates: SoftwareUpdates) {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: IslandSettings(model: model, updates: updates)))
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.title = "SirinIsland 设置"
         window.isReleasedWhenClosed = false

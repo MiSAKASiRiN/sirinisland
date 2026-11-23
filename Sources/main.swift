@@ -1,8 +1,10 @@
 import AppKit
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let model = IslandModel()
-    private lazy var settings = SettingsWindow(model:model)
+    let updates = SoftwareUpdates()
+    private lazy var settings = SettingsWindow(model: model, updates: updates)
     lazy var music = NowPlaying(model)
     let volume = SystemVolume()
     let brightness = SystemBrightness()
@@ -21,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         status.menu = menu
+        updates.start()
         updateScreen()
         NotificationCenter.default.addObserver(self, selector: #selector(updateScreen), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         model.onFinish = { [weak self] in
@@ -82,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         entry("打开岛内终端", #selector(openTerminal))
         menu.addItem(.separator())
         entry("设置…", #selector(openSettings), ",")
+        if let controller = updates.controller {
+            let title = updates.pendingVersion.map { "查看更新 \($0)…" } ?? "检查更新…"
+            menu.addItem(withTitle: title, action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "").target = controller
+        }
         entry(hidden ? "显示灵动岛" : "隐藏灵动岛", #selector(toggleVisibility))
         entry("退出SirinIsland", #selector(quit), "q")
     }

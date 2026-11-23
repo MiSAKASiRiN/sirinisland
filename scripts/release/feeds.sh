@@ -1,0 +1,19 @@
+#!/bin/bash
+# Generate and sign independent feeds over one immutable ZIP, with no delta updates.
+set -euo pipefail
+sparkle="$(scripts/sparkle.sh)"
+for channel in github cdn; do
+    case "$channel" in
+        github) prefix="https://github.com/$GITHUB_UPDATE_REPOSITORY/releases/download/$TAG/" ;;
+        cdn) prefix="${UPDATE_CDN_ORIGIN%/}/sirinisland/releases/$TAG/" ;;
+    esac
+    output="$DIST/$channel/appcast.xml"
+    mkdir -p "$(dirname "$output")"
+    if [[ ! -f "$output" ]]; then
+        printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$sparkle/bin/generate_appcast" --ed-key-file - \
+            --maximum-deltas 0 --download-url-prefix "$prefix" -o "$output" "$(dirname "$ARCHIVE")"
+    fi
+    printf '%s\n' "$SPARKLE_PRIVATE_KEY" | "$sparkle/bin/sign_update" --ed-key-file - --verify "$output"
+done
+xcrun swift scripts/release/verify-archive.swift "$ARCHIVE" "$SPARKLE_PUBLIC_KEY" \
+    "$DIST/github/appcast.xml" "$DIST/cdn/appcast.xml"

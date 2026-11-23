@@ -1,0 +1,97 @@
+name: Publish stable update
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: sirinisland-stable-release
+  queue: max
+jobs:
+  release:
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      TAG: ${{ github.ref_name }}
+      GITHUB_UPDATE_REPOSITORY: ${{ github.repository }}
+      GITHUB_RELEASE_PRIVATE: ${{ github.event.repository.private }}
+      UPDATE_CDN_ORIGIN: ${{ vars.UPDATE_CDN_ORIGIN }}
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      DIST: ${{ github.workspace }}/build/release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and recover any ZIP already staged for this release
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == arm64 ]]
+          [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+){1,2}$ ]]
+          [[ "${TAG#v}" == "$(plutil -extract CFBundleShortVersionString raw Info.plist)" ]]
+          [[ "$(plutil -extract CFBundleVersion raw Info.plist)" =~ ^[1-9][0-9]*$ ]]
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
+          mkdir -p "$DIST/archives"
+          cp Info.plist "$DIST/expected.plist"
+          python3 scripts/release/configure.py "$DIST/expected.plist"
+          name="SirinIsland-${TAG#v}-arm64.zip"
+          echo "ARCHIVE=$DIST/archives/$name" >> "$GITHUB_ENV"
+          if ! gh release view "$TAG" --json assets,isDraft,isPrerelease > "$DIST/release.json"; then
+            gh release create "$TAG" --verify-tag --draft --title "SirinIsland ${TAG#v}" --generate-notes
+            gh release view "$TAG" --json assets,isDraft,isPrerelease > "$DIST/release.json"
+          fi
+          if jq -e 'any(.assets[]; .name == "appcast.xml" and .state == "uploaded")' "$DIST/release.json"; then
+            mkdir -p "$DIST/github"
+            gh release download "$TAG" -p appcast.xml -D "$DIST/github"
+          fi
+          jq -e '.isPrerelease == false' "$DIST/release.json"
+          if jq -e --arg name "$name" 'any(.assets[]; .name == $name and .state == "uploaded")' "$DIST/release.json"; then
+            gh release download "$TAG" -p "$name" -D "$DIST/archives"
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            jq -e '.isDraft' "$DIST/release.json"
+          fi
+
+      - name: Build, sign, notarize and staple
+        if: steps.stage.outputs.reuse != 'true'
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_APP_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+          NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ vars.NOTARY_ISSUER_ID }}
+        run: scripts/release/notarize.sh
+
+      - name: Verify the actual archive and generate signed feeds
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          ditto -x -k "$ARCHIVE" "$DIST/verify"
+          app="$DIST/verify/SirinIsland.app"
+          codesign --verify --deep --strict "$app"
+          codesign --verify -R="anchor apple generic and identifier \"local.codex.ArcIsland\" and certificate leaf[subject.OU] = \"$APPLE_TEAM_ID\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists" "$app"
+          xcrun stapler validate "$app"
+          [[ "$(lipo -archs "$app/Contents/MacOS/SirinIsland")" == arm64 ]]
+          cmp "$app/Contents/Info.plist" "$DIST/expected.plist"
+          scripts/release/feeds.sh
+
+      - name: Stage GitHub assets, upload to Kodo and promote both feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QINIU_BUCKET: ${{ vars.QINIU_BUCKET }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/qiniu"
+          "$RUNNER_TEMP/qiniu/bin/pip" install qiniu==7.18.0
+          "$RUNNER_TEMP/qiniu/bin/python" scripts/release/publish.py

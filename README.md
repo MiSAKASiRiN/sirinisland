@@ -56,3 +56,61 @@ open "build/SirinIsland.app"
 歌词引擎的打包文件位于 WebLyrics/assets，普通构建直接使用这些文件。要从已安装依赖的 Sirin AL Player 源码重新生成，运行 `WebLyrics/rebuild.sh /path/to/applemusic-like-lyrics`。源码映射随项目提供，AMLL 和所用依赖的许可证位于 WebLyrics/licenses。
 
 SirinIsland 在自己的 WebLyrics 构建中用 single-line-balancer.ts 替换桌面播放器的断行模块。长句随进度横向滚动；重新打包只读取传入的 AL Player 源码目录。
+
+## 分发与自动更新
+
+正式版支持 Apple Silicon 和 macOS 13 及以上。首次从七牛 CDN 或 GitHub Releases 下载 ZIP，将 SirinIsland.app 放入「应用程序」。从 1.34（构建号 35）起，正式版默认每天通过七牛检查更新、后台下载，并在应用正常退出时安装。可从菜单栏立即检查，或在「设置 → 关于」关闭自动检查、自动安装。使用公开 GitHub 仓库分发时，该页还可切换更新来源。1.33 及更早版本需要手动安装一次。
+
+### 配置七牛和 GitHub
+
+1. 建立 Kodo 空间，将自有 HTTPS 加速域名绑定到该空间，在 DNS 配置七牛分配的 CNAME，并启用证书。应用需要匿名读取该域名下的文件；如果使用私有源站，请配置 CDN 回源鉴权，使终端用户可以直接访问。以下示例域名为 `https://updates.example.com`。
+2. 在 CDN 缓存规则中将 `.xml` 设为 1 分钟、`.zip` 设为 365 天，规则优先于全局规则。保留旧版本的 ZIP。SDK 会按 bucket 自动发现区域。[七牛缓存配置](https://developer.qiniu.com/fusion/4944/cache-configuration)
+3. 在 tag 所在 GitHub 仓库的 **Settings → Environments** 创建 `release`，填写下表。发布任务使用 GitHub 自动提供的 `GITHUB_TOKEN` 和工作流声明的 `contents: write` 权限。公开仓库的 GitHub 更新源支持匿名访问；私有仓库的 Release 供有权限的成员下载，应用使用七牛源。
+
+| Environment Variables | 填写内容 |
+|---|---|
+| `UPDATE_CDN_ORIGIN` | 自有 CDN 的 HTTPS 根地址，例如 `https://updates.example.com`，不含子路径 |
+| `QINIU_BUCKET` | 该域名回源的 Kodo 空间名 |
+| `SPARKLE_PUBLIC_KEY` | Sparkle 的 Base64 Ed25519 公钥 |
+| `APPLE_TEAM_ID` | Developer ID Application 证书的 10 位 Team ID。沿用项目现有签名时为 `FR76DCGA8Q` |
+| `NOTARY_KEY_ID` | 使用 API Key 公证时填写团队 Key ID |
+| `NOTARY_ISSUER_ID` | 使用 API Key 公证时填写同一团队的 Issuer ID |
+
+| Environment Secrets | 填写内容 |
+|---|---|
+| `APPLE_CERTIFICATE_P12_BASE64` | Developer ID Application 证书及其私钥导出的 .p12，以 Base64 编码；macOS 可用 `base64 -i signing.p12 \| pbcopy` |
+| `APPLE_CERTIFICATE_PASSWORD` | 导出 .p12 时设置的密码 |
+| `NOTARY_APPLE_ID`、`NOTARY_APP_PASSWORD` | 使用 Apple 专用密码公证时，分别填写 Apple 账户和该账户的专用密码 |
+| `NOTARY_API_KEY_P8` | 使用 API Key 公证时填写 .p8 原文，保留 BEGIN/END 行和换行，同时设置 Key ID 和 Issuer ID |
+| `SPARKLE_PRIVATE_KEY` | 与公钥配对的 Sparkle 私钥，填写 `generate_keys -x` 导出的文本 |
+| `QINIU_ACCESS_KEY`、`QINIU_SECRET_KEY` | 七牛发布账户的 AK、SK，需要查询对象、上传版本包、覆盖稳定清单和刷新该 CDN 域名 URL 的权限 |
+
+在自己的 Mac 上用以下命令生成或取回专用于 SirinIsland 的 Sparkle 密钥。使用 -p 输出公钥，使用 -x 将私钥写入指定文件，可从文件填入 GitHub Secret。保管好该密钥，后续发行沿用同一对密钥。
+
+```sh
+sparkle="$(scripts/sparkle.sh)"
+"$sparkle/bin/generate_keys" --account SirinIsland
+"$sparkle/bin/generate_keys" --account SirinIsland -p
+(umask 077; "$sparkle/bin/generate_keys" --account SirinIsland -x "$HOME/SirinIsland-Sparkle.key")
+```
+
+### 打 tag 发布
+
+将本仓库推送到 GitHub，提交发布用的 `Info.plist`。tag 与 `CFBundleShortVersionString` 对应，例如 `v1.34`；每个新版本都应提高整数 `CFBundleVersion`。当前源码已准备为 `1.34 (35)`。在该提交上执行：
+
+```sh
+git tag v1.34
+git push origin v1.34
+```
+
+Actions 中的 **Publish stable update** 构建并公证一次，将最终 ZIP 暂存到 GitHub 草稿，再向 Kodo 上传同一份 ZIP。工作流分别生成并签署两份 appcast，核对包的 SHA-256 后公开 GitHub Release，最后更新七牛清单、刷新 CDN 并从固定 URL 读回验证。
+
+| 用途 | 地址 |
+|---|---|
+| 应用默认检查 | `https://updates.example.com/sirinisland/stable/appcast.xml` |
+| 七牛首次安装包（示例） | `https://updates.example.com/sirinisland/releases/v1.34/SirinIsland-1.34-arm64.zip` |
+| GitHub 备用源 | `https://github.com/<owner>/<repo>/releases/latest/download/appcast.xml` |
+
+发布中断后可以在 Actions 重跑该次任务。同一 tag 会复用已暂存的公证 ZIP，Kodo 只接受相同内容的同名版本包，稳定清单会拒绝构建号倒退。若在 GitHub 已公开后七牛刷新失败，重跑会继续完成 CDN 发布。
+
+本机构建默认不启动更新器。要测试已配置的更新器，可给 `./build.sh` 同时传入环境变量 `UPDATE_CDN_ORIGIN`、`SPARKLE_PUBLIC_KEY` 和 `GITHUB_UPDATE_REPOSITORY=owner/repo`。开发构建只需要公钥。首次发布后可用两次递增构建在测试 Mac 上验证安装、退出和重启。
