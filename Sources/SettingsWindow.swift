@@ -141,7 +141,8 @@ private struct IslandSettings: View {
                 Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 80, height: 80)
                     .accessibilityHidden(true)
                 Text("SirinIsland").font(.title.bold())
-                if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                if let version = (Bundle.main.object(forInfoDictionaryKey: "SirinReleaseVersion")
+                                  ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")) as? String,
                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
                     Text("版本 \(version) (\(build))").font(.callout).foregroundStyle(.secondary)
                 }

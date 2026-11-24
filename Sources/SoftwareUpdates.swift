@@ -4,6 +4,7 @@ import SwiftUI
 
 final class SoftwareUpdates: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
     static let useGitHubKey = "SirinUpdatesUseGitHub"
+    static let includeBetaKey = "SirinUpdatesIncludeBeta"
     private(set) var controller: SPUStandardUpdaterController?
     private(set) var pendingVersion: String?
 
@@ -13,8 +14,16 @@ final class SoftwareUpdates: NSObject, SPUUpdaterDelegate, SPUStandardUserDriver
     }
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        guard UserDefaults.standard.bool(forKey: Self.useGitHubKey) else { return nil }
-        return Bundle.main.object(forInfoDictionaryKey: "SirinGitHubFeedURL") as? String
+        let info = Bundle.main.infoDictionary ?? [:]
+        let github = UserDefaults.standard.bool(forKey: Self.useGitHubKey) && info["SirinGitHubFeedURL"] != nil
+        if UserDefaults.standard.bool(forKey: Self.includeBetaKey) {
+            return info[github ? "SirinGitHubBetaFeedURL" : "SirinBetaFeedURL"] as? String
+        }
+        return github ? info["SirinGitHubFeedURL"] as? String : nil
+    }
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        UserDefaults.standard.bool(forKey: Self.includeBetaKey) ? ["beta"] : []
     }
 
     var supportsGentleScheduledUpdateReminders: Bool { true }
@@ -29,6 +38,7 @@ final class SoftwareUpdates: NSObject, SPUUpdaterDelegate, SPUStandardUserDriver
 struct UpdateSettings: View {
     let controller: SPUStandardUpdaterController
     @AppStorage(SoftwareUpdates.useGitHubKey) private var useGitHub = false
+    @AppStorage(SoftwareUpdates.includeBetaKey) private var includeBeta = false
     @State private var checks = false
     @State private var downloads = false
     @State private var canCheck = false
@@ -44,11 +54,15 @@ struct UpdateSettings: View {
                 .disabled(!canCheck)
             }
             Toggle("自动检查更新", isOn: Binding(get: { checks }, set: { updater.automaticallyChecksForUpdates = $0 }))
+            Toggle("接收 Beta 测试版", isOn: $includeBeta)
+                .disabled(!canCheck)
             Toggle("自动下载并在退出时安装", isOn: Binding(get: { downloads }, set: { updater.automaticallyDownloadsUpdates = $0 }))
                 .disabled(!checks)
             Button("检查更新…") { controller.checkForUpdates(nil) }.disabled(!canCheck)
         }
         .fixedSize()
+        .onChange(of: includeBeta) { _ in updater.resetUpdateCycleAfterShortDelay() }
+        .onChange(of: useGitHub) { _ in updater.resetUpdateCycleAfterShortDelay() }
         .onReceive(updater.publisher(for: \.automaticallyChecksForUpdates)) { checks = $0 }
         .onReceive(updater.publisher(for: \.automaticallyDownloadsUpdates)) { downloads = $0 }
         .onReceive(updater.publisher(for: \.canCheckForUpdates)) { canCheck = $0 }

@@ -1,4 +1,5 @@
-"""Stage identical ZIPs, then advance each stable feed after validating the download."""
+"""Publish identical ZIPs and advance the feeds for the selected audience."""
+import base64
 import hashlib
 import io
 import json
@@ -15,20 +16,22 @@ import requests
 from qiniu.services.storage.uploaders import FormUploader
 from qiniu.utils import etag_stream
 
-from configure import cdn_origin
+from configure import BETA_BRANCH, BETA_FILE, cdn_origin
 
 SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
 STABLE_KEY = "sirinisland/stable/appcast.xml"
+BETA_KEY = "sirinisland/beta/appcast.xml"
 
 
 def feed_item(data):
     items = ET.fromstring(data).findall("./channel/item")
     if len(items) != 1:
-        raise ValueError("Expected one stable update in the appcast")
+        raise ValueError("Expected one update in the appcast")
     item = items[0]
     enclosure = item.find("enclosure")
     return (int(item.findtext(SPARKLE + "version")), item.findtext(SPARKLE + "shortVersionString"),
-            enclosure.attrib["url"], int(enclosure.attrib["length"]), enclosure.attrib[SPARKLE + "edSignature"])
+            enclosure.attrib["url"], int(enclosure.attrib["length"]), enclosure.attrib[SPARKLE + "edSignature"],
+            item.findtext(SPARKLE + "channel"))
 
 
 def allow_promotion(current, candidate):
@@ -58,6 +61,33 @@ def wait_for(url, matches, timeout):
         if time.monotonic() >= deadline:
             raise RuntimeError(f"Public download did not match the expected object: {url}")
         time.sleep(10)
+
+
+def github_beta_entry(api, repo_url):
+    response = api.get(f"{repo_url}/contents/{BETA_FILE}", params={"ref": BETA_BRANCH}, timeout=30)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+def publish_github_beta_feed(api, repo_url, previous, path, tag):
+    # Contents API updates the fixed URL atomically. A stale SHA fails instead of overwriting a newer feed.
+    data = path.read_bytes()
+    if previous and base64.b64decode(previous["content"]) == data:
+        return
+    body = {"message": f"Publish update feed for {tag}", "branch": BETA_BRANCH,
+            "content": base64.b64encode(data).decode("ascii")}
+    if previous:
+        body["sha"] = previous["sha"]
+    else:
+        branch = api.get(f"{repo_url}/git/ref/heads/{BETA_BRANCH}", timeout=30)
+        if branch.status_code == 404:
+            api.post(f"{repo_url}/git/refs", json={"ref": f"refs/heads/{BETA_BRANCH}",
+                     "sha": os.environ["GITHUB_SHA"]}, timeout=30).raise_for_status()
+        else:
+            branch.raise_for_status()
+    api.put(f"{repo_url}/contents/{BETA_FILE}", json=body, timeout=30).raise_for_status()
 
 
 class Kodo:
@@ -102,10 +132,10 @@ def main():
     dist = Path(os.environ["DIST"])
     package = Path(os.environ["ARCHIVE"])
     tag = os.environ["TAG"]
+    beta = "-beta." in tag
     repo = os.environ["GITHUB_UPDATE_REPOSITORY"]
     origin = cdn_origin()
     zip_key = f"sirinisland/releases/{tag}/{package.name}"
-    cdn_feed_url = f"{origin}/{STABLE_KEY}"
     feeds = {channel: dist / channel / "appcast.xml" for channel in ("cdn", "github")}
     cdn_item, github_item = (feed_item(feeds[name].read_bytes()) for name in ("cdn", "github"))
     config = plistlib.loads((dist / "expected.plist").read_bytes())
@@ -113,7 +143,8 @@ def main():
     size = package.stat().st_size
     github_zip_url = f"https://github.com/{repo}/releases/download/{tag}/{package.name}"
     for item, url in [(cdn_item, f"{origin}/{zip_key}"), (github_item, github_zip_url)]:
-        if item[:4] != (version, tag[1:], url, size) or item[4] != cdn_item[4]:
+        if (item[:4] != (version, tag[1:], url, size) or item[4] != cdn_item[4]
+                or item[5] != ("beta" if beta else None)):
             raise ValueError(f"Unexpected version, URL, length or signature in feed for {url}")
 
     release = json.loads((dist / "release.json").read_text())
@@ -131,8 +162,10 @@ def main():
 
     # Persist the canonical notarized bytes first so a failed mirror can always resume.
     stage_asset(package)
-    latest = requests.get(f"https://api.github.com/repos/{repo}/releases/latest",
-                          headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}"}, timeout=30)
+    api = requests.Session()
+    api.headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
+    repo_url = f"https://api.github.com/repos/{repo}"
+    latest = api.get(f"{repo_url}/releases/latest", timeout=30)
     if latest.status_code != 404:
         latest.raise_for_status()
         previous = latest.json()
@@ -144,14 +177,21 @@ def main():
             # A pre-Sparkle release has no CFBundleVersion to compare.
             previous_tag = previous["tag_name"]
             previous_version = tuple(map(int, previous_tag.removeprefix("v").split(".")))
-            if previous_version >= tuple(map(int, tag[1:].split("."))):
+            if previous_version >= tuple(map(int, tag[1:].split("-")[0].split("."))):
                 raise ValueError(f"Release must be newer than {previous_tag}")
 
     kodo = Kodo()
-    current_hash = kodo.stored_hash(STABLE_KEY)
-    if current_hash:
-        current = wait_for(cdn_feed_url, lambda data: etag_stream(io.BytesIO(data)) == current_hash, 660)
-        allow_promotion(feed_item(current), cdn_item)
+    # Beta subscribers receive each newer build, including the next stable release.
+    # Check both channels even for a beta so existing stable installations can opt in.
+    for key in (STABLE_KEY, BETA_KEY):
+        current_hash = kodo.stored_hash(key)
+        if current_hash:
+            current = wait_for(f"{origin}/{key}", lambda data: etag_stream(io.BytesIO(data)) == current_hash, 660)
+            allow_promotion(feed_item(current), cdn_item)
+    public_github = "SirinGitHubFeedURL" in config
+    previous_beta = github_beta_entry(api, repo_url) if public_github else None
+    if previous_beta:
+        allow_promotion(feed_item(base64.b64decode(previous_beta["content"])), github_item)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         github_feed_upload = pool.submit(stage_asset, feeds["github"])
@@ -161,20 +201,26 @@ def main():
     wait_for(cdn_item[2], lambda data: hashlib.sha256(data).digest() == digest, 180)
 
     if release["isDraft"]:
-        gh("release", "edit", tag, "--draft=false", "--latest")
+        gh("release", "edit", tag, "--draft=false", "--latest=false" if beta else "--latest")
     # Check the published assets through the same access path as their audience.
-    if "SirinGitHubFeedURL" in config:
-        wait_for(config["SirinGitHubFeedURL"], lambda data: data == feeds["github"].read_bytes(), 180)
+    if public_github:
+        versioned_feed = f"https://github.com/{repo}/releases/download/{tag}/appcast.xml"
+        wait_for(versioned_feed if beta else config["SirinGitHubFeedURL"],
+                 lambda data: data == feeds["github"].read_bytes(), 180)
         wait_for(github_item[2], lambda data: hashlib.sha256(data).digest() == digest, 180)
+        publish_github_beta_feed(api, repo_url, previous_beta, feeds["github"], tag)
+        wait_for(config["SirinGitHubBetaFeedURL"], lambda data: data == feeds["github"].read_bytes(), 660)
     else:
         mirror_zip = dist / "github-download.zip"
         gh("release", "download", tag, "-p", package.name, "-O", mirror_zip)
         if hashlib.sha256(mirror_zip.read_bytes()).digest() != digest:
             raise ValueError("GitHub asset checksum mismatch")
 
-    kodo.upload(STABLE_KEY, feeds["cdn"], immutable=False)
-    kodo.refresh(cdn_feed_url)
-    wait_for(cdn_feed_url, lambda data: data == feeds["cdn"].read_bytes(), 660)
+    for key in ([BETA_KEY] if beta else [STABLE_KEY, BETA_KEY]):
+        url = f"{origin}/{key}"
+        kodo.upload(key, feeds["cdn"], immutable=False)
+        kodo.refresh(url)
+        wait_for(url, lambda data: data == feeds["cdn"].read_bytes(), 660)
     print(f"{tag} published to GitHub and {origin}. SHA-256 {digest.hex()}")
 
 

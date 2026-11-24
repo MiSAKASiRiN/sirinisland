@@ -1,4 +1,4 @@
-name: Publish stable update
+name: Publish update
 on:
   push:
     tags: ['v*']
@@ -33,24 +33,24 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(uname -m)" == arm64 ]]
-          [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+){1,2}$ ]]
-          [[ "${TAG#v}" == "$(plutil -extract CFBundleShortVersionString raw Info.plist)" ]]
           [[ "$(plutil -extract CFBundleVersion raw Info.plist)" =~ ^[1-9][0-9]*$ ]]
           [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]]
           mkdir -p "$DIST/archives"
           cp Info.plist "$DIST/expected.plist"
           python3 scripts/release/configure.py "$DIST/expected.plist"
+          prerelease=false
+          if [[ "$TAG" == *-beta.* ]]; then prerelease=true; fi
           name="SirinIsland-${TAG#v}-arm64.zip"
           echo "ARCHIVE=$DIST/archives/$name" >> "$GITHUB_ENV"
           if ! gh release view "$TAG" --json assets,isDraft,isPrerelease > "$DIST/release.json"; then
-            gh release create "$TAG" --verify-tag --draft --title "SirinIsland ${TAG#v}" --generate-notes
+            gh release create "$TAG" --verify-tag --draft --prerelease="$prerelease" --title "SirinIsland ${TAG#v}" --generate-notes
             gh release view "$TAG" --json assets,isDraft,isPrerelease > "$DIST/release.json"
           fi
           if jq -e 'any(.assets[]; .name == "appcast.xml" and .state == "uploaded")' "$DIST/release.json"; then
             mkdir -p "$DIST/github"
             gh release download "$TAG" -p appcast.xml -D "$DIST/github"
           fi
-          jq -e '.isPrerelease == false' "$DIST/release.json"
+          jq -e --argjson expected "$prerelease" '.isPrerelease == $expected' "$DIST/release.json"
           if jq -e --arg name "$name" 'any(.assets[]; .name == $name and .state == "uploaded")' "$DIST/release.json"; then
             gh release download "$TAG" -p "$name" -D "$DIST/archives"
             echo "reuse=true" >> "$GITHUB_OUTPUT"

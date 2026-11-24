@@ -61,6 +61,8 @@ SirinIsland 在自己的 WebLyrics 构建中用 single-line-balancer.ts 替换�
 
 正式版支持 Apple Silicon 和 macOS 13 及以上。首次从七牛 CDN 或 GitHub Releases 下载 ZIP，将 SirinIsland.app 放入「应用程序」。从 1.34（构建号 35）起，正式版默认每天通过七牛检查更新、后台下载，并在应用正常退出时安装。可从菜单栏立即检查，或在「设置 → 关于」关闭自动检查、自动安装。使用公开 GitHub 仓库分发时，该页还可切换更新来源。1.33 及更早版本需要手动安装一次。
 
+「设置 → 关于 → 接收 Beta 测试版」默认关闭。开启后可从所选来源获取新的测试版和正式版，点「检查更新…」可立即检查。关闭后只检查正式版，已安装的测试版会在下一次有更高构建号的正式版时升级。
+
 ### 配置七牛和 GitHub
 
 1. 建立 Kodo 空间，将自有 HTTPS 加速域名绑定到该空间，在 DNS 配置七牛分配的 CNAME，并启用证书。应用需要匿名读取该域名下的文件；如果使用私有源站，请配置 CDN 回源鉴权，使终端用户可以直接访问。以下示例域名为 `https://updates.example.com`。
@@ -96,20 +98,25 @@ sparkle="$(scripts/sparkle.sh)"
 
 ### 打 tag 发布
 
-将本仓库推送到 GitHub，提交发布用的 `Info.plist`。tag 与 `CFBundleShortVersionString` 对应，例如 `v1.34`；每个新版本都应提高整数 `CFBundleVersion`。当前源码已准备为 `1.34 (35)`。在该提交上执行：
+提交发布用的 `Info.plist`。正式版 tag 为 `v<版本>`，测试版为 `v<版本>-beta.N`，其中 N 是从 1 开始的正整数。两者的数字版本部分都要与 `CFBundleShortVersionString` 相同。两个渠道共用严格递增的整数 `CFBundleVersion`，例如：
 
-```sh
-git tag v1.34
-git push origin v1.34
-```
+| tag | 应用版本 | 示例构建号 | GitHub Release |
+|---|---|---:|---|
+| `v1.35-beta.1` | 1.35 | 36 | Pre-release |
+| `v1.35-beta.2` | 1.35 | 37 | Pre-release |
+| `v1.35` | 1.35 | 38 | Latest |
 
-Actions 中的 **Publish stable update** 构建并公证一次，将最终 ZIP 暂存到 GitHub 草稿，再向 Kodo 上传同一份 ZIP。工作流分别生成并签署两份 appcast，核对包的 SHA-256 后公开 GitHub Release，最后更新七牛清单、刷新 CDN 并从固定 URL 读回验证。
+在对应提交上创建并推送 tag，例如 `git tag v1.35-beta.1` 和 `git push origin v1.35-beta.1`。Actions 中的 **Publish update** 对两个渠道都使用同一个 `release` 环境，构建、公证、签署更新清单并核对两端 ZIP 的 SHA-256。Beta 发布只推进测试订阅清单。正式版会同时推进稳定和测试订阅清单。
 
 | 用途 | 地址 |
 |---|---|
 | 应用默认检查 | `https://updates.example.com/sirinisland/stable/appcast.xml` |
 | 七牛首次安装包（示例） | `https://updates.example.com/sirinisland/releases/v1.34/SirinIsland-1.34-arm64.zip` |
 | GitHub 备用源 | `https://github.com/<owner>/<repo>/releases/latest/download/appcast.xml` |
+| 七牛测试订阅 | `https://updates.example.com/sirinisland/beta/appcast.xml` |
+| GitHub 测试订阅 | `https://raw.githubusercontent.com/<owner>/<repo>/sparkle-updates/beta.xml` |
+
+GitHub 测试订阅的 ZIP 仍从对应 Release 下载。工作流用现有的 `contents: write` 权限创建并维护 `sparkle-updates` 分支上的签名清单，以便在 GitHub Latest 指向正式版时也能发现测试版。如果仓库使用分支规则，请允许该工作流更新这个分支。
 
 发布中断后可以在 Actions 重跑该次任务。同一 tag 会复用已暂存的公证 ZIP，Kodo 只接受相同内容的同名版本包，稳定清单会拒绝构建号倒退。若在 GitHub 已公开后七牛刷新失败，重跑会继续完成 CDN 发布。
 
