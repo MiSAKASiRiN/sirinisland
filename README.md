@@ -42,7 +42,7 @@ Mac 接入电源、开始充电或电量降到 20% 及以下时，歌词位置�
 
 ## 本机编译
 
-需要 macOS 13 或更高版本，以及带 Swift 6.2 或更高版本的完整 Xcode。脚本编译当前 Mac 架构的程序，默认使用 Sirin AL Player 的 Developer ID Application 证书签署框架和主程序。保持同一团队、证书类型和应用标识符，可让后续版本匹配同一项辅助功能授权。其他开发者可用 SIRIN_SIGNING_IDENTITY 指定自己的签名身份。
+本机编译建议使用 Xcode 27.1，与 GitHub CI 和发布工作流一致。生成的应用支持 macOS 13 或更高版本。脚本编译当前 Mac 架构的程序，默认使用 Sirin AL Player 的 Developer ID Application 证书签署框架和主程序。保持同一团队、证书类型和应用标识符，可让后续版本匹配同一项辅助功能授权。其他开发者可用 SIRIN_SIGNING_IDENTITY 指定自己的签名身份。
 
 ```sh
 ./build.sh
@@ -114,3 +114,7 @@ Actions 中的 **Publish stable update** 构建并公证一次，将最终 ZIP �
 发布中断后可以在 Actions 重跑该次任务。同一 tag 会复用已暂存的公证 ZIP，Kodo 只接受相同内容的同名版本包，稳定清单会拒绝构建号倒退。若在 GitHub 已公开后七牛刷新失败，重跑会继续完成 CDN 发布。
 
 本机构建默认不启动更新器。要测试已配置的更新器，可给 `./build.sh` 同时传入环境变量 `UPDATE_CDN_ORIGIN`、`SPARKLE_PUBLIC_KEY` 和 `GITHUB_UPDATE_REPOSITORY=owner/repo`。开发构建只需要公钥。首次发布后可用两次递增构建在测试 Mac 上验证安装、退出和重启。
+
+## 许可证
+
+SirinIsland 的自有源码按 [Mozilla Public License Version 2.0（MPL-2.0）](LICENSE) 分发。第三方组件分别适用其随附的许可证。发行包中的 `SirinIsland.app/Contents/Resources/Licenses/` 包含许可证和项目源码地址。

@@ -21,6 +21,8 @@ term_modules="$term_products"
 if [[ -d "$term_products/Modules" ]]; then term_modules="$term_products/Modules"; fi
 package="$scratch/SirinIsland.app"
 mkdir -p "$package/Contents/"{MacOS,Resources/Licenses,Frameworks}
+cp LICENSE "$package/Contents/Resources/Licenses/SirinIsland-MPL-2.0.txt"
+printf '%s\n' 'SirinIsland source code (MPL-2.0): https://github.com/MiSAKASiRiN/sirinisland' > "$package/Contents/Resources/Licenses/SirinIsland-source.txt"
 cp Info.plist "$package/Contents/Info.plist"
 if [[ -n "${UPDATE_CDN_ORIGIN:-}${SPARKLE_PUBLIC_KEY:-}${GITHUB_UPDATE_REPOSITORY:-}" ]]; then
     python3 scripts/release/configure.py "$package/Contents/Info.plist"
