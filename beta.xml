@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>SirinIsland</title>
+        <item>
+            <title>1.34-beta.1</title>
+            <pubDate>Tue, 24 Nov 2026 08:51:55 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>35</sparkle:version>
+            <sparkle:shortVersionString>1.34-beta.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/MiSAKASiRiN/sirinisland/releases/download/v1.34-beta.1/SirinIsland-1.34-beta.1-arm64.zip" length="17613586" type="application/octet-stream" sparkle:edSignature="+0/TX4j/6/jmKxbJGYzTopJfISuVWE+Tk1iU7AEtDXEccr6KNzkJdSnCZiZ9iZQzXBSty3ybO/iLzSWqi9mMAw=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: LjA9M+nCBvgWShv014fVQ0iTt2Zv5eIkaeNW4V1pEDfMWirQrqPzDsLVFq21BRpAN9HhVRT9iHgh1erqRZsSAA==
+length: 1233
+-->
